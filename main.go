@@ -8,7 +8,10 @@ package main
 */
 import "C"
 
+import "clips-mcp/facts"
+
 import (
+
   "context"
   "fmt"
 	"os"
@@ -16,25 +19,8 @@ import (
   "github.com/mark3labs/mcp-go/mcp"
   "github.com/mark3labs/mcp-go/server"
 )
-//func main() {
-//	// 1. Инициализация (старый API)
-//
-//
-//	// 3. Reset
-//	C.Reset()
-//
-//	// 4. Assert факта
-//	fact := C.CString(`(obligation (id "OFZ-26238") (yield_at_close 7.85) (simple_yield 0.12) (calculated yes))`)
-//	defer C.free(unsafe.Pointer(fact))
-//
-//	C.AssertString(fact)
-//
-//	// 5. Запуск
-//	C.Run(-1)
-//
-//	fmt.Println("CLIPS (Fuzzy) отработал")
-//}
 
+const FACT_BUFF_SIZE = 4096
 
 func main() {
     // Create a new MCP server
@@ -47,8 +33,8 @@ func main() {
 		C.InitializeEnvironment()
 
 		// 2. Загрузка правил
-		file := C.CString("rules.clp")
-		defer C.free(unsafe.Pointer(file))
+		//file := C.CString("rules.clp")
+		//
 
     // Add tool
     loadFile := mcp.NewTool("load_file",
@@ -75,23 +61,28 @@ func main() {
         mcp.WithDescription("Run the CLIPS environment"),
     )
 
-    //retriveFact := mcp.NewTool("retrive_fact",
-    //    mcp.WithDescription("Run the CLIPS environment"),
-    //    mcp.WithString("factname",
-    //        mcp.Required(),
-    //        mcp.Description("The name of the fact or template"),
-    //    ),
-    //)
+    retriveFact := mcp.NewTool("retrive_fact",
+        mcp.WithDescription("Run the CLIPS environment"),
+        mcp.WithString("factname",
+            mcp.Required(),
+            mcp.Description("The name of the fact or template"),
+        ),
+    )
 
     s.AddTool(loadFile, loadFileHandler)
 		s.AddTool(resetEnv, clipsReset)
 		s.AddTool(run, runClips)
+		s.AddTool(loadFolder, loadFolderHandler)
 
-
+		httpOpts := []server.StreamableHTTPOption{}
+		httpServer := server.NewStreamableHTTPServer(s, httpOpts...)
     // Start the stdio server
-    if err := server.ServeStdio(s); err != nil {
+		
+		if err := httpServer.Start(":9000"); err != nil {
         fmt.Printf("Server error: %v\n", err)
-    }
+    
+		}
+
 }
 
 
@@ -103,6 +94,7 @@ func runClips(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolRe
 
 func clipsReset(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	  C.Reset() 
+		fmt.Println("Clips reseted")
     return mcp.NewToolResultText(fmt.Sprintf("Reseted")), nil
 }
 
@@ -113,13 +105,43 @@ func loadFileHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
         return mcp.NewToolResultError(err.Error()), nil
     }
 
+
+		/********************************************************/
+		/* Load: C access routine for the load command. Returns */
+		/*   0 if the file couldn't be opened, -1 if the file   */
+		/*   was opened but an error occurred while loading     */
+		/*   constructs, and 1 if the file was opened and no    */
+		/*   errors occured while loading.                      */
+		/********************************************************/
+
 		if C.Load(C.CString(name)) != 1 {
         return mcp.NewToolResultError("Cannot load this file"), nil
 		}
 
+
     return mcp.NewToolResultText(fmt.Sprintf("File loaded")), nil
 }
 
+
+
+func retriveFactHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+  factname, err := request.RequireString("factname")
+
+  if err != nil {
+      return mcp.NewToolResultError(err.Error()), nil
+  }
+
+	//var factBuff [FACT_BUFF_SIZE]C.char
+	// Get fact ptr
+			// Fuction name is just for error chicking. The argument must be the symbol
+			// from struct expr
+//   static struct fact *getFactPtr(struct expr *theArgument, char *functionName);
+
+
+	//C.GetFactPPForm(factBuff, FACT_BUFF_SIZE, )
+
+  return mcp.NewToolResultText(fmt.Sprintf("File loaded")), nil
+}
 
 func loadFolderHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
     name, err := request.RequireString("foldername")
@@ -145,7 +167,3 @@ func loadFolderHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 
     return mcp.NewToolResultText(fmt.Sprintf("File loaded")), nil
 }
-
-
-
-

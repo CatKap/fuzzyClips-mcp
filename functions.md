@@ -1021,9 +1021,11 @@
  T FactRelationFunction
  T FactReplaceGetfield
  T FactReplaceGetvar
+
  T Facts
  T FactsCommand
  T FactsIncrementalReset
+
  T FactSlotLength
  D FactSlotLengthInfo
  T FactSlotNames
@@ -1368,17 +1370,25 @@
  T GetEvaluationError
  T GetExpressionVarConstraints
  t GetExpressionVarConstraints.localalias
+
  T GetFactAddressOrIndexArgument
  T GetFactDuplication
  T GetFactDuplicationCommand
  T GetFactList
  T GetFactListChanged
  T GetFactListFunction
+
  T GetFactOrInstanceArgument
  T GetFactPPForm
+
  t getFactPtr
+
  t GetFactsArgument
+
  T GetFactSlot
+
+
+
  T GetFastLoad
  T GetFastSave
  t GetfieldReplace
