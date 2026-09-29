@@ -20,6 +20,20 @@ long Go_GetMFLength(void *target)
     return GetMFLength(target);
 }
 
+long Go_ValueToInteger(void *target)
+{
+    return ValueToInteger(target);
+}
+
+double Go_ValueToDouble(void *target)
+{
+    return ValueToDouble(target);
+}
+
+void *Go_GetMFValue(void *target, long index)
+{
+    return GetMFValue(target, index);
+}
 
 int Go_DeftemplateImplied(void *theDeftemplate)
 {
@@ -51,134 +65,144 @@ const char *Go_GetDeftemplateName(void *theDeftemplate)
     return GetDeftemplateName(theDeftemplate);
 }
 
-// Helper function to convert DATA_OBJECT to string
-static char* data_object_to_string(DATA_OBJECT* theValue) {
-    static char buffer[1024];
-    buffer[0] = '\0';
-
-    if (theValue == NULL) {
-        return "<null>";
-    }
-
-    switch (theValue->type) {
-        case INTEGER:
-            snprintf(buffer, sizeof(buffer), "%ld", ValueToLong(theValue->value));
-            break;
-        case FLOAT:
-            snprintf(buffer, sizeof(buffer), "%g", ValueToDouble(theValue->value));
-            break;
-        case SYMBOL:
-            strncpy(buffer, ValueToString(theValue->value), sizeof(buffer)-1);
-            buffer[sizeof(buffer)-1] = '\0';
-            break;
-        case STRING:
-            strncpy(buffer, ValueToString(theValue->value), sizeof(buffer)-1);
-            buffer[sizeof(buffer)-1] = '\0';
-            break;
-        case MULTIFIELD: {
-            struct multifield* mf = (struct multifield*)theValue->value;
-            long length = GetMFLength(mf);
-            int pos = 0;
-            pos += snprintf(buffer+pos, sizeof(buffer)-pos, "[");
-            for (long i = 1; i <= length; i++) {
-                struct field* fieldPtr = GetMFPtr(mf, i);
-                char temp[64];
-                temp[0] = '\0';
-                switch (fieldPtr->type) {
-                    case INTEGER:
-                        snprintf(temp, sizeof(temp), "%ld", ValueToLong(fieldPtr->value));
-                        break;
-                    case FLOAT:
-                        snprintf(temp, sizeof(temp), "%g", ValueToDouble(fieldPtr->value));
-                        break;
-                    case SYMBOL:
-                        strncpy(temp, ValueToString(fieldPtr->value), sizeof(temp)-1);
-                        temp[sizeof(temp)-1] = '\0';
-                        break;
-                    case STRING:
-                        strncpy(temp, ValueToString(fieldPtr->value), sizeof(temp)-1);
-                        temp[sizeof(temp)-1] = '\0';
-                        break;
-                    default:
-                        strncpy(temp, "<unknown>", sizeof(temp)-1);
-                        temp[sizeof(temp)-1] = '\0';
-                        break;
-                }
-                if (i > 1) {
-                    pos += snprintf(buffer+pos, sizeof(buffer)-pos, ", ");
-                }
-                pos += snprintf(buffer+pos, sizeof(buffer)-pos, "%s", temp);
-            }
-            pos += snprintf(buffer+pos, sizeof(buffer)-pos, "]");
-            break;
-        }
-        case FACT_ADDRESS: {
-            struct fact* f = (struct fact*)theValue->value;
-            snprintf(buffer, sizeof(buffer), "<Fact-%ld>", f->factIndex);
-            break;
-        }
-        case EXTERNAL_ADDRESS:
-            strncpy(buffer, "<external>", sizeof(buffer)-1);
-            buffer[sizeof(buffer)-1] = '\0';
-            break;
-        default:
-            snprintf(buffer, sizeof(buffer), "<type:%d>", theValue->type);
-            break;
-    }
-    return buffer;
-}
 */
 import "C"
 
 import (
 	"fmt"
+	"strings"
 	"unsafe"
 )
 
-// PrintFactsToBuffer iterates through facts and prints their names and values to the provided buffer
-// Returns the number of bytes written (including null terminator) or -1 on error
-//
-// Parameters:
-//   - buffer: pointer to a character array where the output will be stored
-//   - bufferLength: maximum number of bytes to write (including null terminator)
-//
-// The output format for each fact:
+
+
+type Fact struct {
+	Name string
+	Fields map[string]any
+}
+
+// This is the Go equivalent of the old PrintAtom function.
+func AtomToString(typ C.int, value unsafe.Pointer) string {
+	switch typ {
+	case C.FLOAT:
+		return fmt.Sprintf("%f", C.Go_ValueToDouble(value))
+
+	case C.INTEGER:
+		return fmt.Sprintf("%d", C.Go_ValueToInteger(value))
+
+	case C.SYMBOL:
+		return C.GoString(C.Go_ValueToString(value))
+
+	case C.STRING:
+		s := C.GoString(C.Go_ValueToString(value))
+		return `"` + s + `"`
+
+	case C.EXTERNAL_ADDRESS:
+		return fmt.Sprintf("<Pointer-%p>", value)
+
+	case C.INSTANCE_NAME:
+		return "[" + C.GoString(C.Go_ValueToString(value)) + "]"
+
+	case C.RVOID:
+		return ""
+
+	default:
+		return fmt.Sprintf("<unknown atom type %d>", typ)
+	}
+}
+
+// DataObjectToString converts a CLIPS DATA_OBJECT to a Go string.
+
+
+
+func DataObjectToString(d *C.DATA_OBJECT) string {
+	if d == nil {
+		return "<nil DATA_OBJECT>"
+	}
+
+	switch d._type {
+	case C.INTEGER:
+		return fmt.Sprintf("%d", C.Go_ValueToInteger(unsafe.Pointer(d)))
+
+	case C.FLOAT:
+		return fmt.Sprintf("%f", C.Go_ValueToDouble(unsafe.Pointer(d)))
+
+	case C.SYMBOL:
+		return C.GoString(C.Go_ValueToString(d.value))
+
+	case C.STRING:
+		return `"` + C.GoString(C.Go_ValueToString(d.value)) + `"`
+
+	case C.MULTIFIELD:
+		length := C.Go_GetMFLength(d.value)
+		var b strings.Builder
+		b.WriteString("(")
+
+		for i := C.long(1); i <= length; i++ {
+			if i > 1 {
+				b.WriteByte(' ')
+			}
+			field := C.Go_GetMFValue(d.value, i)
+			b.WriteString(fieldToString(field))
+		}
+
+		b.WriteString(")")
+		return b.String()
+
+	case C.FACT_ADDRESS:
+		return fmt.Sprintf("<Fact-Address %p>", d.value)
+
+	case C.INSTANCE_ADDRESS:
+		return fmt.Sprintf("<Instance-Address %p>", d.value)
+
+	case C.EXTERNAL_ADDRESS:
+		return fmt.Sprintf("<External-Address %p>", d.value)
+
+	case C.INSTANCE_NAME:
+		return C.GoString(C.Go_ValueToString(d.value))
+
+	default:
+		return fmt.Sprintf("<Unknown type=%d value=%p>", d._type, d.value)
+	}
+}
+
+func fieldToString(field unsafe.Pointer) string {
+	f := (*C.struct_field)(field)
+
+	switch f._type {
+	case C.INTEGER:
+		return fmt.Sprintf("%d", C.Go_ValueToInteger(unsafe.Pointer(f)))
+	case C.FLOAT:
+		return fmt.Sprintf("%f", C.Go_ValueToDouble(unsafe.Pointer(f)))
+	case C.SYMBOL:
+		return C.GoString(C.Go_ValueToString(f.value))
+	case C.STRING:
+		return `"` + C.GoString(C.Go_ValueToString(f.value)) + `"`
+	default:
+		return fmt.Sprintf("<type=%d>", f._type)
+	}
+}
+
+
+// PrintFactsToBuffer iterates through facts and returns their names and values as a string
+// Returns the string containing facts formatted as:
 //   Fact-<index> (<deftemplate-name>):
 //     <slot-name>: <slot-value>
 //     ...
 //   (blank line between facts)
-//
-// For ordered (implied) facts, slots are shown as indices:
-//   Fact-<index> (<deftemplate-name>):
-//     [0]: <value>
-//     [1]: <value>
-//     ...
-//
-func PrintFactsToBuffer(buffer *C.char, bufferLength C.int) C.int {
-	if buffer == nil || bufferLength <= 0 {
-		return -1
-	}
-
-	// Initialize buffer
-	C.memset(unsafe.Pointer(buffer), 0, C.size_t(bufferLength))
-
-	var pos C.int = 0
-	var firstFact C.int = 1
+// Returns an empty string on error
+func PrintFactsToBuffer() string {
+	var output strings.Builder
+	var firstFact bool = true
 
 	// Iterate through facts in current module
 	var factPtr unsafe.Pointer = C.GetNextFactInScope(nil)
 	for factPtr != nil {
 		// Add separator between facts
-		if firstFact != 0 {
-			if pos+2 >= bufferLength {
-				break // Buffer full
-			}
-			C.memset(unsafe.Pointer(uintptr(unsafe.Pointer(buffer))+uintptr(pos)), '\n', 1)
-			pos++
-			C.memset(unsafe.Pointer(uintptr(unsafe.Pointer(buffer))+uintptr(pos)), '\n', 1)
-			pos++
+		if !firstFact {
+			output.WriteString("\n\n")
 		} else {
-			firstFact = 0
+			firstFact = false
 		}
 
 		// Get fact index (ID)
@@ -197,15 +221,7 @@ func PrintFactsToBuffer(buffer *C.char, bufferLength C.int) C.int {
 		}
 
 		// Write fact header
-		header := C.CString(fmt.Sprintf("Fact-%ld (%s):\n", factIndex, C.GoString(deftemplateName)))
-		headerLen := C.int(len(C.GoString(header)))
-		if pos+headerLen >= bufferLength {
-			C.free(unsafe.Pointer(header))
-			break
-		}
-		C.memcpy(unsafe.Pointer(uintptr(unsafe.Pointer(buffer))+uintptr(pos)), unsafe.Pointer(header), C.size_t(headerLen))
-		pos += headerLen
-		C.free(unsafe.Pointer(header))
+		fmt.Fprintf(&output, "F-%d (%s) CF %.2f:\n", int(factIndex), C.GoString(deftemplateName), float32((*C.struct_fact)(factPtr).factCF))
 
 		// Check if implied (ordered) fact
 		implied := C.int(C.Go_DeftemplateImplied(unsafe.Pointer(deftemplate)))
@@ -221,22 +237,14 @@ func PrintFactsToBuffer(buffer *C.char, bufferLength C.int) C.int {
 			length := C.Go_GetMFLength(unsafe.Pointer(multifield))
 
 			for i := C.long(0); i < length; i++ {
-				
-				field := (unsafe.Pointer(uintptr(unsafe.Pointer(&multifield.theFields)) + uintptr(i*C.sizeof_struct_field)))
+
+				field := (*C.struct_field)(unsafe.Pointer(uintptr(unsafe.Pointer(&multifield.theFields)) + uintptr(i*C.sizeof_struct_field)))
 
 				// Since struct field and DATA_OBJECT have the same layout for type and value,
 				// we can cast the field pointer to DATA_OBJECT*
-				valueStr := C.GoString(C.data_object_to_string((*C.DATA_OBJECT)(unsafe.Pointer(field))))
-
-				fieldLine := C.CString(fmt.Sprintf("  [%d]: %s\n", i, valueStr))
-				lineLen := C.int(len(C.GoString(fieldLine)))
-				if pos+lineLen >= bufferLength {
-					C.free(unsafe.Pointer(fieldLine))
-					break
-				}
-				C.memcpy(unsafe.Pointer(uintptr(unsafe.Pointer(buffer))+uintptr(pos)), unsafe.Pointer(fieldLine), C.size_t(lineLen))
-				pos += lineLen
-				C.free(unsafe.Pointer(fieldLine))
+				//valueStr := C.GoString(C.data_object_to_string((*C.DATA_OBJECT)(unsafe.Pointer(field))))
+				valueStr := AtomToString(C.int(field._type), field.value) 
+				fmt.Fprintf(&output, "  [%d]: %s\n", int(i), valueStr)
 			}
 		} else {
 			// Named fact - iterate through slots
@@ -249,16 +257,8 @@ func PrintFactsToBuffer(buffer *C.char, bufferLength C.int) C.int {
 				var value C.DATA_OBJECT
 				success := C.GetFactSlot(factPtr, slotName, &value)
 				if success != 0 && value._type != C.RVOID {
-					valueStr := C.GoString(C.data_object_to_string(&value))
-					line := C.CString(fmt.Sprintf("  %s: %s\n", slotNameGo, valueStr))
-					lineLen := C.int(len(C.GoString(line)))
-					if pos+lineLen >= bufferLength {
-						C.free(unsafe.Pointer(line))
-						break
-					}
-					C.memcpy(unsafe.Pointer(uintptr(unsafe.Pointer(buffer))+uintptr(pos)), unsafe.Pointer(line), C.size_t(lineLen))
-					pos += lineLen
-					C.free(unsafe.Pointer(line))
+					valueStr := DataObjectToString(&value)
+					fmt.Fprintf(&output, "  %s: %s\n", slotNameGo, valueStr)
 				}
 
 				slotPtr = (*C.struct_templateSlot)(unsafe.Pointer(slotPtr)).next
@@ -268,11 +268,5 @@ func PrintFactsToBuffer(buffer *C.char, bufferLength C.int) C.int {
 		factPtr = C.GetNextFactInScope(factPtr)
 	}
 
-	// Ensure null termination
-	if pos >= bufferLength {
-		pos = bufferLength - 1
-	}
-
-	C.memset(unsafe.Pointer(uintptr(unsafe.Pointer(buffer))+uintptr(pos)), 0, 1)
-	return pos + 1 // Include null terminator
+	return output.String()
 }

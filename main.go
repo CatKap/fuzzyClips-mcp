@@ -4,6 +4,7 @@ package main
 #cgo LDFLAGS: -L/home/kapitan/Downloads/gits/FuzzyCLIPS/source -lfzclips -lm
 
 #include <clips.h>
+#include <strngfun.h>
 #include <stdlib.h>
 */
 import "C"
@@ -11,16 +12,16 @@ import "C"
 import "clips-mcp/facts"
 
 import (
-
+	"unsafe"
   "context"
   "fmt"
 	"os"
-	"unsafe"
   "github.com/mark3labs/mcp-go/mcp"
   "github.com/mark3labs/mcp-go/server"
 )
 
 const FACT_BUFF_SIZE = 4096
+
 
 func main() {
     // Create a new MCP server
@@ -61,18 +62,32 @@ func main() {
         mcp.WithDescription("Run the CLIPS environment"),
     )
 
-    retriveFact := mcp.NewTool("retrive_fact",
-        mcp.WithDescription("Run the CLIPS environment"),
-        mcp.WithString("factname",
+    retriveFacts := mcp.NewTool("retrive_facts",
+        mcp.WithDescription("Return all facts"),
+    )
+
+    evaluateString := mcp.NewTool("evaluate_string",
+        mcp.WithDescription("Directry evalute command in clips syntax (supports fuzzy CF)"),
+        mcp.WithString("exestring",
             mcp.Required(),
-            mcp.Description("The name of the fact or template"),
+            mcp.Description("CLIPS-syntax string to execute"),
         ),
     )
+
+    //retriveFact := mcp.NewTool("retrive_fact",
+    //    mcp.WithDescription("Run the CLIPS environment"),
+    //    mcp.WithString("factname",
+    //        mcp.Required(),
+    //        mcp.Description("The name of the fact or template"),
+    //    ),
+    //)
 
     s.AddTool(loadFile, loadFileHandler)
 		s.AddTool(resetEnv, clipsReset)
 		s.AddTool(run, runClips)
 		s.AddTool(loadFolder, loadFolderHandler)
+		s.AddTool(retriveFacts, retriveFactsHandler)
+		s.AddTool(evaluateString, evaluateStringHandler)
 
 		httpOpts := []server.StreamableHTTPOption{}
 		httpServer := server.NewStreamableHTTPServer(s, httpOpts...)
@@ -91,6 +106,23 @@ func runClips(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolRe
     return mcp.NewToolResultText(fmt.Sprintf("environment had runned")), nil
 }
 
+
+func evaluateStringHandler (ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+    exe, err := request.RequireString("exestring")
+		var result C.DATA_OBJECT
+    if err != nil {
+        return mcp.NewToolResultError(err.Error()), nil
+    }
+
+		cmd := C.CString(exe)
+		defer C.free(unsafe.Pointer(cmd))
+		
+		ok := C.Eval(cmd, &result)
+		if ok != 1 {
+        return mcp.NewToolResultError("Error during evaluation"), nil
+		}	
+    return mcp.NewToolResultText(fmt.Sprintf("Ok")), nil
+}
 
 func clipsReset(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	  C.Reset() 
@@ -124,12 +156,8 @@ func loadFileHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 
 
 
-func retriveFactHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-  factname, err := request.RequireString("factname")
+func retriveFactsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-  if err != nil {
-      return mcp.NewToolResultError(err.Error()), nil
-  }
 
 	//var factBuff [FACT_BUFF_SIZE]C.char
 	// Get fact ptr
@@ -139,8 +167,9 @@ func retriveFactHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 
 
 	//C.GetFactPPForm(factBuff, FACT_BUFF_SIZE, )
-
-  return mcp.NewToolResultText(fmt.Sprintf("File loaded")), nil
+	factsInfo := facts.PrintFactsToBuffer()
+	fmt.Print(factsInfo)
+  return mcp.NewToolResultText(factsInfo), nil
 }
 
 func loadFolderHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
