@@ -1,7 +1,7 @@
 package handlers
 /*
-#cgo CFLAGS: -I/home/kapitan/Downloads/gits/FuzzyCLIPS/source
-#cgo LDFLAGS: -L/home/kapitan/Downloads/gits/FuzzyCLIPS/source -lfzclips -lm
+#cgo CFLAGS: -I${SRCDIR}/../fuzzy-clips/source
+#cgo LDFLAGS: -L${SRCDIR}/../fuzzy-clips/source -lfzclips -lm
 
 #include <clips.h>
 #include <strngfun.h>

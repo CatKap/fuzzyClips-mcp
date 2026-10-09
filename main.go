@@ -122,7 +122,7 @@ func main() {
 		httpServer := server.NewStreamableHTTPServer(s, httpOpts...)
     // Start the stdio server
 		
-		if err := httpServer.Start(getenv("FUZZY_MCP_PORT", "9000")); err != nil {
+		if err := httpServer.Start(getenv("FUZZY_MCP_ADDRES", "localhost:9000")); err != nil {
         fmt.Printf("Server error: %v\n", err)
     
 		}
