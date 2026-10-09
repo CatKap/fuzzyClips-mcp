@@ -1,13 +1,22 @@
 package main
 
 import (
-  "fmt"
-	"context"
 	"clips-mcp/handlers"
+	"context"
+	"fmt"
+	"os"
+
 	//"clips-mcp/facts"
-  "github.com/mark3labs/mcp-go/mcp"
-  "github.com/mark3labs/mcp-go/server"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
+func getenv(key, fallback string) string {
+    value := os.Getenv(key)
+    if len(value) == 0 {
+        return fallback
+    }
+    return value
+}
 
 func main() {
     // Create a new MCP server
@@ -16,6 +25,7 @@ func main() {
         "6.10",
         server.WithToolCapabilities(false),
     )
+
 		handlers.InitClips()
 		//facts.ProcessDirectory(&handlers.ClipsMutex, "/home/kapitan/Cooooodiiiing/FinTech/InvestmentKnowledgeDatabase/for-agent/")
 
@@ -112,7 +122,7 @@ func main() {
 		httpServer := server.NewStreamableHTTPServer(s, httpOpts...)
     // Start the stdio server
 		
-		if err := httpServer.Start(":9000"); err != nil {
+		if err := httpServer.Start(getenv("FUZZY_MCP_PORT", "9000")); err != nil {
         fmt.Printf("Server error: %v\n", err)
     
 		}
