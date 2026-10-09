@@ -64,21 +64,21 @@ const char *Go_GetDeftemplateName(void *theDeftemplate)
 {
     return GetDeftemplateName(theDeftemplate);
 }
-
 */
 import "C"
-
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unsafe"
 )
 
-
-
 type Fact struct {
-	Name string
-	Fields map[string]any
+	Deftemplate string
+	Id 	  int 
+	Fields []string
+	NamedSlots map[string]string
+	CF float32
 }
 
 // This is the Go equivalent of the old PrintAtom function.
@@ -112,7 +112,39 @@ func AtomToString(typ C.int, value unsafe.Pointer) string {
 }
 
 // DataObjectToString converts a CLIPS DATA_OBJECT to a Go string.
+func StringifyFacts(facts []Fact) string {
+	if len(facts) == 0 {
+		return "[]"
+	}
 
+	var b strings.Builder
+	b.WriteString("Facts:\n")
+
+	for i, f := range facts {
+		b.WriteString(fmt.Sprintf("  [%d] (%q) Id=%d CF=%.3f",
+			i, f.Deftemplate, f.Id, f.CF))
+
+		if len(f.Fields) > 0 {
+			b.WriteString(fmt.Sprintf(" Fields=%v", f.Fields))
+		}
+
+		if len(f.NamedSlots) > 0 {
+			b.WriteString(" NamedSlots=")
+			first := true
+			for k, v := range f.NamedSlots {
+				if !first {
+					b.WriteString(" ")
+				}
+				b.WriteString(fmt.Sprintf(" %s:%s", k, v))
+				first = false
+			}
+		}
+
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
 
 
 func DataObjectToString(d *C.DATA_OBJECT) string {
@@ -191,20 +223,17 @@ func fieldToString(field unsafe.Pointer) string {
 //     ...
 //   (blank line between facts)
 // Returns an empty string on error
-func PrintFactsToBuffer() string {
-	var output strings.Builder
-	var firstFact bool = true
+
+func Facts() []Fact {
+	//var output strings.Builder
+
+	var facts []Fact
 
 	// Iterate through facts in current module
 	var factPtr unsafe.Pointer = C.GetNextFactInScope(nil)
 	for factPtr != nil {
 		// Add separator between facts
-		if !firstFact {
-			output.WriteString("\n\n")
-		} else {
-			firstFact = false
-		}
-
+		goFact := Fact{} 
 		// Get fact index (ID)
 		factIndex := C.FactIndex(factPtr)
 
@@ -221,8 +250,13 @@ func PrintFactsToBuffer() string {
 		}
 
 		// Write fact header
-		fmt.Fprintf(&output, "F-%d (%s) CF %.2f:\n", int(factIndex), C.GoString(deftemplateName), float32((*C.struct_fact)(factPtr).factCF))
+		fmt.Printf("F-%d (%s) CF %.2f:\n", int(factIndex), C.GoString(deftemplateName), float32((*C.struct_fact)(factPtr).factCF))
 
+		goFact.Id = int(factIndex)	
+		goFact.Deftemplate = C.GoString(deftemplateName)
+		goFact.CF = float32((*C.struct_fact)(factPtr).factCF)
+
+		fmt.Println(goFact)
 		// Check if implied (ordered) fact
 		implied := C.int(C.Go_DeftemplateImplied(unsafe.Pointer(deftemplate)))
 		if implied != 0 {
@@ -235,19 +269,19 @@ func PrintFactsToBuffer() string {
 			// Get the multifield
 			multifield := (*C.struct_multifield)(value.value)
 			length := C.Go_GetMFLength(unsafe.Pointer(multifield))
-
+			if length > 0 {
+				goFact.Fields = make([]string, length) 
+			}
 			for i := C.long(0); i < length; i++ {
 
 				field := (*C.struct_field)(unsafe.Pointer(uintptr(unsafe.Pointer(&multifield.theFields)) + uintptr(i*C.sizeof_struct_field)))
 
-				// Since struct field and DATA_OBJECT have the same layout for type and value,
-				// we can cast the field pointer to DATA_OBJECT*
-				//valueStr := C.GoString(C.data_object_to_string((*C.DATA_OBJECT)(unsafe.Pointer(field))))
-				valueStr := AtomToString(C.int(field._type), field.value) 
-				fmt.Fprintf(&output, "  [%d]: %s\n", int(i), valueStr)
+				goFact.Fields[i] = AtomToString(C.int(field._type), field.value)
+				//fmt.Printf( "  [%d]: %s\n", int(i), valueStr)
 			}
 		} else {
 			// Named fact - iterate through slots
+			goFact.NamedSlots = make(map[string]string)
 			slotPtr := (*C.struct_deftemplate)(unsafe.Pointer(deftemplate)).slotList
 			for slotPtr != nil {
 				slotName := C.Go_ValueToString(unsafe.Pointer(slotPtr.slotName))
@@ -256,17 +290,61 @@ func PrintFactsToBuffer() string {
 				// Get slot value
 				var value C.DATA_OBJECT
 				success := C.GetFactSlot(factPtr, slotName, &value)
+				fmt.Printf(slotNameGo)
 				if success != 0 && value._type != C.RVOID {
 					valueStr := DataObjectToString(&value)
-					fmt.Fprintf(&output, "  %s: %s\n", slotNameGo, valueStr)
+					goFact.NamedSlots[slotNameGo] = valueStr
+					fmt.Printf("  %s: %s\n", slotNameGo, valueStr)
 				}
 
 				slotPtr = (*C.struct_templateSlot)(unsafe.Pointer(slotPtr)).next
+
 			}
 		}
 		// Get next fact
+		facts = append(facts, goFact)
 		factPtr = C.GetNextFactInScope(factPtr)
 	}
 
-	return output.String()
+	return facts
 }
+
+
+
+
+func MatchFinder(p string, facts []Fact, searchInFields bool) (matched []Fact, reterr string ){
+
+	matches := make([]Fact, 0)
+	re, err := regexp.Compile(p)	
+
+	if err != nil {
+		return nil, err.Error()
+	}
+	for _, fact := range facts {
+		if re.MatchString(fact.Deftemplate)	 {
+			matches = append(matches, fact)
+			continue
+		}
+		
+		if ! searchInFields {
+			continue
+		}
+
+		// searchInFields is true
+		for _, field := range fact.Fields {
+			if re.MatchString(field)	 {
+				matches = append(matches, fact)
+				break
+			}
+		}
+	}
+	return matches, ""
+}
+
+
+
+
+
+
+
+

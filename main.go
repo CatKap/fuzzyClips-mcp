@@ -1,27 +1,13 @@
 package main
-/*
-#cgo CFLAGS: -I/home/kapitan/Downloads/gits/FuzzyCLIPS/source
-#cgo LDFLAGS: -L/home/kapitan/Downloads/gits/FuzzyCLIPS/source -lfzclips -lm
-
-#include <clips.h>
-#include <strngfun.h>
-#include <stdlib.h>
-*/
-import "C"
-
-import "clips-mcp/facts"
 
 import (
-	"unsafe"
-  "context"
   "fmt"
-	"os"
+	"context"
+	"clips-mcp/handlers"
+	//"clips-mcp/facts"
   "github.com/mark3labs/mcp-go/mcp"
   "github.com/mark3labs/mcp-go/server"
 )
-
-const FACT_BUFF_SIZE = 4096
-
 
 func main() {
     // Create a new MCP server
@@ -30,12 +16,19 @@ func main() {
         "6.10",
         server.WithToolCapabilities(false),
     )
-
-		C.InitializeEnvironment()
+		handlers.InitClips()
+		//facts.ProcessDirectory(&handlers.ClipsMutex, "/home/kapitan/Cooooodiiiing/FinTech/InvestmentKnowledgeDatabase/for-agent/")
 
 		// 2. Загрузка правил
-		//file := C.CString("rules.clp")
+
+		//var result C.DATA_OBJECT
+		//C.Eval(C.CString("(assert (person Bob))"), &result)
 		//
+		//f := facts.Facts()
+		//fmt.Print("Finded\n")
+		//fmt.Print(facts.MatchFinder("Bob", f, true))
+		//C.Reset()
+
 
     // Add tool
     loadFile := mcp.NewTool("load_file",
@@ -55,16 +48,38 @@ func main() {
     )
 
     resetEnv := mcp.NewTool("reset_env",
-        mcp.WithDescription("Reset CLIPS environment"),
+        mcp.WithDescription("Set deffacts, delete assertion facts and inherited facts in CLIPS environment"),
+    )
+
+    clearEnv := mcp.NewTool("clear_env",
+        mcp.WithDescription("Tottaly delete all in CLIPS environment"),
     )
 
     run := mcp.NewTool("run",
         mcp.WithDescription("Run the CLIPS environment"),
     )
 
-    retriveFacts := mcp.NewTool("retrive_facts",
+    description := mcp.NewTool("description",
+        mcp.WithDescription("Get basic syntax rules description"),
+    )
+
+
+    retriveFacts := mcp.NewTool("retrive_all_facts",
         mcp.WithDescription("Return all facts"),
     )
+
+		retriveByName := mcp.NewTool("find_facts_by_name",
+        mcp.WithDescription("Find facts by given string, can search through the fields if parameter specifyed. Allows regexp"),
+				mcp.WithString("pattern",
+					mcp.Required(),
+					mcp.Description("Name or regexp pattern to search"),
+				),
+
+				mcp.WithBoolean("search_in_fields",
+					mcp.DefaultBool(false),
+					mcp.Description("Name or regexp pattern to search"),
+				),
+		)
 
     evaluateString := mcp.NewTool("evaluate_string",
         mcp.WithDescription("Directry evalute command in clips syntax (supports fuzzy CF)"),
@@ -82,12 +97,16 @@ func main() {
     //    ),
     //)
 
-    s.AddTool(loadFile, loadFileHandler)
-		s.AddTool(resetEnv, clipsReset)
-		s.AddTool(run, runClips)
-		s.AddTool(loadFolder, loadFolderHandler)
-		s.AddTool(retriveFacts, retriveFactsHandler)
-		s.AddTool(evaluateString, evaluateStringHandler)
+    s.AddTool(loadFile,   		handlers.LoadFileHandler)
+		s.AddTool(resetEnv,   		handlers.ResetClips)
+		s.AddTool(clearEnv,   		handlers.ClearClips)
+		s.AddTool(run, 			  		handlers.RunClips)
+		s.AddTool(loadFolder, 		handlers.LoadFolderHandler)
+		s.AddTool(retriveFacts, 	handlers.RetriveFactsHandler)
+		s.AddTool(evaluateString, handlers.EvaluateStringHandler)
+		s.AddTool(retriveByName,  handlers.RetriveByNameHandler)
+
+		s.AddTool(description,    DescriptionHandler)
 
 		httpOpts := []server.StreamableHTTPOption{}
 		httpServer := server.NewStreamableHTTPServer(s, httpOpts...)
@@ -100,99 +119,7 @@ func main() {
 
 }
 
-
-func runClips(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	  C.Run(-1) 
-    return mcp.NewToolResultText(fmt.Sprintf("environment had runned")), nil
+func DescriptionHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+    return mcp.NewToolResultText("This is FuzzyCLIPS mcp server. To use CF in facts declaration you should write (assert (<fact data>) CF %2.f). To use CF in rules use (defrule <rule-name> (declare CF %2.f) <<remain-rule-part>). To access cf of a fact use function (get-cf fact)"), nil
 }
 
-
-func evaluateStringHandler (ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-    exe, err := request.RequireString("exestring")
-		var result C.DATA_OBJECT
-    if err != nil {
-        return mcp.NewToolResultError(err.Error()), nil
-    }
-
-		cmd := C.CString(exe)
-		defer C.free(unsafe.Pointer(cmd))
-		
-		ok := C.Eval(cmd, &result)
-		if ok != 1 {
-        return mcp.NewToolResultError("Error during evaluation"), nil
-		}	
-    return mcp.NewToolResultText(fmt.Sprintf("Ok")), nil
-}
-
-func clipsReset(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	  C.Reset() 
-		fmt.Println("Clips reseted")
-    return mcp.NewToolResultText(fmt.Sprintf("Reseted")), nil
-}
-
-func loadFileHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-    name, err := request.RequireString("filename")
-
-    if err != nil {
-        return mcp.NewToolResultError(err.Error()), nil
-    }
-
-
-		/********************************************************/
-		/* Load: C access routine for the load command. Returns */
-		/*   0 if the file couldn't be opened, -1 if the file   */
-		/*   was opened but an error occurred while loading     */
-		/*   constructs, and 1 if the file was opened and no    */
-		/*   errors occured while loading.                      */
-		/********************************************************/
-
-		if C.Load(C.CString(name)) != 1 {
-        return mcp.NewToolResultError("Cannot load this file"), nil
-		}
-
-
-    return mcp.NewToolResultText(fmt.Sprintf("File loaded")), nil
-}
-
-
-
-func retriveFactsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-
-	//var factBuff [FACT_BUFF_SIZE]C.char
-	// Get fact ptr
-			// Fuction name is just for error chicking. The argument must be the symbol
-			// from struct expr
-//   static struct fact *getFactPtr(struct expr *theArgument, char *functionName);
-
-
-	//C.GetFactPPForm(factBuff, FACT_BUFF_SIZE, )
-	factsInfo := facts.PrintFactsToBuffer()
-	fmt.Print(factsInfo)
-  return mcp.NewToolResultText(factsInfo), nil
-}
-
-func loadFolderHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-    name, err := request.RequireString("foldername")
-
-    if err != nil {
-        return mcp.NewToolResultError(err.Error()), nil
-    }
-
-		info, err := os.Stat(name)
-			if os.IsNotExist(err) {
-        return mcp.NewToolResultError("Folder does not exist"), nil
-			}
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Error checking path: %s", err)), nil
-			}
-		
-			if ! info.IsDir() {
-				return mcp.NewToolResultError("Path exists, but it is a file, not a folder"), nil
-			}
-
-		if C.Load(C.CString(name)) != 1 {
-		}
-
-    return mcp.NewToolResultText(fmt.Sprintf("File loaded")), nil
-}

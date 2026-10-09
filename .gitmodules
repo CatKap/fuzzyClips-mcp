@@ -1,0 +1,3 @@
+[submodule "fuzzy-clips"]
+	path = fuzzy-clips
+	url = https://github.com/CatKap/FuzzyCLIPS
